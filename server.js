@@ -10,16 +10,18 @@ const port = process.env.PORT || 5000;
 
 const app = express();
 
+// cors will be used to connect frontend with backend
 app.use(cors());
 
 app.get('/', (req,res) => {
   res.send({api: 'video-talker-api'});
 })
 
+// getting the twilio turn credentials
 app.get('/api/get-turn-credentials', (req,res) => {
 
-  const accountSid = 'AC57947cac6f719b249623466a656881f6'
-  const authToken = '76aa27bf56801c83b8e4147d31585984'
+  const accountSid = process.env.TWILIO_ACCOUNT_SID;
+  const authToken = process.env.TWILIO_AUTH_TOKEN;
   const client = twilio(accountSid,authToken);
 
   client.tokens.create().then((token) => res.send({token}))
@@ -36,11 +38,13 @@ const peerServer = ExpressPeerServer(server, {
   debug: true
 });
 
+
+// middle-ware peerjs
 app.use('/peerjs', peerServer);
 
-
-
+// creating the peer server listeners
 groupCallHandler.createPeerServerListeners(peerServer);
+
 
 const io = socket(server, {
   cors: {
@@ -49,7 +53,9 @@ const io = socket(server, {
   }
 });
 
+// the active users
 let peers = [];
+// the rooms
 let groupCallRooms = [];
 
 const broadcastEventTypes = {
@@ -158,6 +164,7 @@ io.on('connection', (socket) => {
 
   // listeners related with group call
   socket.on('group-call-register', (data) => {
+    // a new roomID using uuidv4
     const roomId = uuidv4();
     socket.join(roomId);
 
@@ -168,6 +175,7 @@ io.on('connection', (socket) => {
       roomId: roomId
     };
 
+    // emmiting the new crated user to all active users
     groupCallRooms.push(newGroupCallRoom);
     io.sockets.emit('broadcast', {
       event: broadcastEventTypes.GROUP_CALL_ROOMS,
@@ -175,6 +183,7 @@ io.on('connection', (socket) => {
     });
   });
 
+  // handling join request
   socket.on('group-call-join-request', (data) => {
     io.to(data.roomId).emit('group-call-join-request', {
       peerId: data.peerId,
@@ -184,14 +193,18 @@ io.on('connection', (socket) => {
     socket.join(data.roomId);
   });
 
+  // handling user leaving
   socket.on('group-call-user-left', (data) => {
-    socket.leave(data.roomId);
-
-    io.to(data.roomId).emit('group-call-user-left', {
-      streamId: data.streamId
-    });
+    if(data !== null)
+    {
+      socket.leave(data.roomId);
+      io.to(data.roomId).emit('group-call-user-left', {
+        streamId: data.streamId
+      });
+    }
   });
 
+  // listener for meeting closed by host
   socket.on('group-call-closed-by-host', (data) => {
     groupCallRooms = groupCallRooms.filter(room => room.peerId !== data.peerId);
 
@@ -199,5 +212,10 @@ io.on('connection', (socket) => {
       event: broadcastEventTypes.GROUP_CALL_ROOMS,
       groupCallRooms
     });
+  });
+
+  socket.on('message', (message) => {
+     console.log('recieved at the backend');
+     io.to(roomId).emit('create new message', message);
   });
 });
